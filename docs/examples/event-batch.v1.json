@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "sessionId": "c0f7c6a2-3b1e-4d8a-9f2a-1e5b7c9d0a11",
+  "sentAt": "2026-10-21T13:05:10.120Z",
+  "context": {
+    "deviceType": "mobile",
+    "os": "android",
+    "browser": "chrome",
+    "viewportClass": "xs",
+    "timezone": "Europe/Warsaw",
+    "localHour": 15,
+    "dayOfWeek": 3,
+    "daypart": "afternoon",
+    "referrerType": "social",
+    "utmSource": "instagram"
+  },
+  "events": [
+    {
+      "eventId": "4e2a1c7b-0d9f-4b3a-8c61-2f7e5d4a9b01",
+      "type": "page_view",
+      "ts": "2026-10-21T13:04:40.010Z",
+      "page": "/",
+      "productId": null,
+      "payload": { "pageType": "home" }
+    },
+    {
+      "eventId": "7a5d3e2f-1b4c-4e6a-9d82-3c8f6e5b0c12",
+      "type": "rec_impression",
+      "ts": "2026-10-21T13:04:41.500Z",
+      "page": "/",
+      "productId": null,
+      "payload": {
+        "slot": "home_for_you",
+        "productIds": [123, 88, 41, 207],
+        "modelVersion": "popular_2026-10-21",
+        "strategy": "popular"
+      }
+    },
+    {
+      "eventId": "9b1c4f6e-2a3d-4c5b-8e71-4d9a7f6c1d23",
+      "type": "rec_click",
+      "ts": "2026-10-21T13:04:58.300Z",
+      "page": "/",
+      "productId": 123,
+      "payload": { "slot": "home_for_you", "position": 0, "modelVersion": "popular_2026-10-21", "strategy": "popular" }
+    },
+    {
+      "eventId": "1c8e5a7d-3b2f-4d6c-9a03-5e1b8d7f2e34",
+      "type": "product_view",
+      "ts": "2026-10-21T13:05:02.004Z",
+      "page": "/p/oversized-hoodie-black",
+      "productId": 123,
+      "payload": { "listPosition": 0, "fromSource": "recs" }
+    },
+    {
+      "eventId": "2d9f6b8e-4c3a-4e7d-8b14-6f2c9e8a3f45",
+      "type": "image_interaction",
+      "ts": "2026-10-21T13:05:06.250Z",
+      "page": "/p/oversized-hoodie-black",
+      "productId": 123,
+      "payload": { "action": "next", "imageIndex": 1 }
+    }
+  ]
+}

@@ -1,0 +1,164 @@
+# Local infrastructure (ADR-0014).
+#   docker compose -f infra/docker-compose.yml up -d                    # Kafka, PostgreSQL, Redis
+#   docker compose -f infra/docker-compose.yml --profile app up -d --build   # + API, EventWriter, shop
+#   docker compose -f infra/docker-compose.yml --profile tools up -d    # + Kafka UI
+# ML Service joins the "app" profile in stage 3.
+# Ports are bound to 127.0.0.1 only.
+
+name: shop
+
+services:
+  kafka:
+    image: ${KAFKA_IMAGE}
+    environment:
+      CLUSTER_ID: ${KAFKA_CLUSTER_ID}
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      # INTERNAL: other containers (kafka:29092), EXTERNAL: host / IDE (localhost:9092)
+      KAFKA_LISTENERS: INTERNAL://:29092,EXTERNAL://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://localhost:${KAFKA_PORT}
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      # Topics are created explicitly by kafka-init (ADR-0003)
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+    ports:
+      - "127.0.0.1:${KAFKA_PORT}:9092"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:29092 > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+
+  kafka-init:
+    image: ${KAFKA_IMAGE}
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists \
+          --topic ${KAFKA_TOPIC_EVENTS} --partitions 3 --replication-factor 1 \
+          --config retention.ms=${KAFKA_RETENTION_MS}
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists \
+          --topic ${KAFKA_TOPIC_DLQ} --partitions 1 --replication-factor 1 \
+          --config retention.ms=${KAFKA_RETENTION_MS}
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --list
+
+  postgres:
+    image: ${POSTGRES_IMAGE}
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      # Runs only on first start (empty volume)
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: ${REDIS_IMAGE}
+    # Recommendations are volatile, PostgreSQL is the source of truth (ADR-0005)
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "127.0.0.1:${REDIS_PORT}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # --- Application (profile "app") ---
+
+  api:
+    build:
+      context: ../backend
+      target: api
+      args:
+        DOTNET_VERSION: ${DOTNET_VERSION}
+    profiles: ["app"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__Shop: Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+      Kafka__BootstrapServers: kafka:29092
+      Kafka__Topic: ${KAFKA_TOPIC_EVENTS}
+      Redis__ConnectionString: redis:6379
+    # Direct access for debugging; the shop reaches the API through the frontend's nginx
+    ports:
+      - "127.0.0.1:${API_PORT}:8080"
+
+  event-writer:
+    build:
+      context: ../backend
+      target: event-writer
+      args:
+        DOTNET_VERSION: ${DOTNET_VERSION}
+    profiles: ["app"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    environment:
+      DOTNET_ENVIRONMENT: Production
+      ConnectionStrings__Shop: Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+      Kafka__BootstrapServers: kafka:29092
+      Kafka__Topic: ${KAFKA_TOPIC_EVENTS}
+      Kafka__DlqTopic: ${KAFKA_TOPIC_DLQ}
+      Kafka__GroupId: event-writer
+
+  frontend:
+    build:
+      context: ../frontend
+      args:
+        NODE_VERSION: ${NODE_VERSION}
+        NGINX_VERSION: ${NGINX_VERSION}
+    profiles: ["app"]
+    depends_on:
+      - api
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT}:80"
+
+  # --- Tools (profile "tools") ---
+
+  kafka-ui:
+    image: ${KAFKA_UI_IMAGE}
+    profiles: ["tools"]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+    ports:
+      - "127.0.0.1:${KAFKA_UI_PORT}:8080"
+
+volumes:
+  kafka-data:
+  postgres-data:
