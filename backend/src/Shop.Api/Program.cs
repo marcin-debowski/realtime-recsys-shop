@@ -1,3 +1,5 @@
+using Shop.Infrastructure;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
@@ -5,6 +7,11 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
+
+var connectionString = builder.Configuration.GetConnectionString("Shop")
+    ?? throw new InvalidOperationException("Connection string 'Shop' is missing.");
+
+builder.Services.AddInfrastructure(connectionString);
 
 var app = builder.Build();
 
